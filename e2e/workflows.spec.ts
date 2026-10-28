@@ -141,7 +141,43 @@ test("invalid token, invalid wallet, duplicate wallet and retryable sync failure
   await addWallet(page, "Retry wallet", fixture.payments[0].asset_issuer);
   // A fresh testnet address uses an upstream adapter failure on its first attempt.
   await expect(page.getByText("Sync failed", { exact: true })).toBeVisible();
+  let releaseRetry!: () => void;
+  const retryPending = new Promise<void>((resolve) => (releaseRetry = resolve));
+  let retryRequests = 0;
+  await page.route(
+    "**/api/wallets/*/sync",
+    async (route) => {
+      retryRequests++;
+      await retryPending;
+      await route.fulfill({
+        status: 503,
+        json: {
+          success: false,
+          error: {
+            code: "SERVICE_UNAVAILABLE",
+            message: "Sync is temporarily unavailable. Please retry.",
+            details: {},
+          },
+        },
+      });
+    },
+    { times: 1 },
+  );
   await page.getByRole("button", { name: "Retry sync" }).click();
+  const pendingRetry = page.getByRole("button", { name: "Requesting sync…" });
+  await expect(pendingRetry).toBeDisabled();
+  await expect.poll(() => retryRequests).toBe(1);
+  await pendingRetry.evaluate((button: HTMLButtonElement) => button.click());
+  expect(retryRequests).toBe(1);
+  releaseRetry();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "We couldn’t finish" }),
+  ).toContainText("Sync is temporarily unavailable. Please retry.");
+  await page.getByRole("button", { name: "Retry sync" }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Sync requested." }),
+  ).toContainText("Wallet status will update automatically.");
+  await expect(page.getByText("We couldn’t finish that.")).not.toBeVisible();
   await expect(page.getByText("Up to date", { exact: true })).toBeVisible();
   await page
     .getByRole("button", { name: "Connect wallet", exact: true })

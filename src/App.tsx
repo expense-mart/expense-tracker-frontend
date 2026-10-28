@@ -883,8 +883,13 @@ function App() {
         method,
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       }),
-    onSuccess: async () => {
+    onMutate: ({ path }) => {
+      if (path.endsWith("/sync")) setNotice("");
+    },
+    onSuccess: async (_, { path }) => {
       setActionError(undefined);
+      if (path.endsWith("/sync"))
+        setNotice("Sync requested. Wallet status will update automatically.");
       await Promise.all(
         ["wallets", "transactions", "summary", "categories"].map((key) =>
           cache.invalidateQueries({ queryKey: [key] }),
@@ -1132,9 +1137,13 @@ function App() {
                                 })
                               }
                             >
-                              {w.syncStatus === "failed"
-                                ? "Retry sync"
-                                : "Sync wallet"}
+                              {mutation.isPending &&
+                              mutation.variables?.path ===
+                                `/wallets/${w.id}/sync`
+                                ? "Requesting sync…"
+                                : w.syncStatus === "failed"
+                                  ? "Retry sync"
+                                  : "Sync wallet"}
                             </Button>
                             <button
                               className="text-button"
